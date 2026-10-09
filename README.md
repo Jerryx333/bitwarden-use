@@ -22,6 +22,8 @@ bwu unlock --keychain
 ```
 
 Scripts must add `--reveal` when consuming secrets and `--yes` when applying reviewed writes.
+
+Without `--reveal`, `get` outputs the literal `[redacted]` with exit code 0 and a hint on stderr when a value is masked; use `--reveal` or `bwu run --env VAR=ITEM -- <command>` to consume the real value.
 Empty values require `--allow-empty`; URI edits preserve unselected fields, passkeys and attachments.
 Custom fields use exact names. Domain lookup never reveals credentials until exactly one item matches.
 

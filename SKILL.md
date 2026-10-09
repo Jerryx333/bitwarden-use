@@ -22,6 +22,8 @@ are named `rbw` for compatibility).
 
 ## Core commands
 
+Without `--reveal`, `get` outputs the literal `[redacted]` with exit code 0 and a hint on stderr when a value is masked; use `--reveal` or `bwu run --env VAR=ITEM -- <command>` to consume the real value.
+
 ```sh
 bwu get <name> --json                  # masked structured fields; --raw also works
 bwu get <name> --field password --reveal # pass directly to the consumer, never log

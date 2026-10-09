@@ -100,7 +100,9 @@ enum Opt {
         raw: bool,
     },
 
-    #[command(about = "Display the password for a given entry")]
+    #[command(
+        about = "Display the password for a given entry (masked as [redacted] unless --reveal)"
+    )]
     Get {
         #[command(flatten)]
         find_args: FindArgs,
@@ -116,7 +118,10 @@ enum Opt {
         clipboard: bool,
         #[structopt(short, long, help = "List fields in this entry")]
         list_fields: bool,
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Print the real value instead of the literal [redacted]"
+        )]
         reveal: bool,
         #[arg(long, conflicts_with_all = ["field", "full", "list_fields"])]
         codes: bool,

@@ -1,3 +1,7 @@
+# 0.9.2
+
+- `get`: emit one hint on stderr when nonempty values are masked, pointing to `--reveal` and `bwu run --env VAR=ITEM -- <command>`. Stdout and exit codes are unchanged. Help and agent documentation now explain the literal `[redacted]` default.
+
 # 0.9.1
 
 - Fix: the agent crashed (SIGBUS in Security.framework) whenever it stored the master password in the macOS login keychain, so `unlock --keychain-store` never worked and the agent vanished (`failed to parse message from agent: EOF`). The agent used to fork without exec to go to the background, which is not safe for Apple frameworks; it now re-executes itself with `--no-daemonize` in a new session and acknowledges startup over a pipe ("already running" is still exit code 23).
