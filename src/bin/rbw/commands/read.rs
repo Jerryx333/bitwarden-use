@@ -1,23 +1,45 @@
 use super::*;
 use serde_json::{json, Value};
 
-/// Mask all values; retain object shape, field names, and stable item IDs.
-fn redact(value: &mut Value) {
+const REDACTED_HINT: &str = "values are redacted; use --reveal to print plaintext, or bwu run --env VAR=ITEM -- <command> to pass values only to a child process";
+
+fn redacted_hint(masked: bool) -> Option<&'static str> {
+    masked.then_some(REDACTED_HINT)
+}
+
+fn print_redacted_hint(masked: bool) {
+    if let Some(hint) = redacted_hint(masked) {
+        eprintln!("{hint}");
+    }
+}
+
+/// Mask all values; report whether a nonempty string was masked.
+/// Retain object shape, field names, and stable item IDs.
+fn redact(value: &mut Value) -> bool {
+    let mut masked = false;
     match value {
-        Value::String(s) => *s = "[redacted]".into(),
-        Value::Array(values) => values.iter_mut().for_each(redact),
+        Value::String(s) => {
+            masked = !s.is_empty();
+            *s = "[redacted]".into();
+        }
+        Value::Array(values) => {
+            for value in values {
+                masked |= redact(value);
+            }
+        }
         Value::Object(map) => {
             for (key, value) in map {
                 if !matches!(
                     key.as_str(),
                     "id" | "name" | "type" | "match_type" | "last_used_date"
                 ) {
-                    redact(value);
+                    masked |= redact(value);
                 }
             }
         }
         _ => {}
     }
+    masked
 }
 
 fn recovery_codes(notes: &str) -> Vec<String> {
@@ -63,14 +85,14 @@ pub(super) fn display(
             json!(codes.iter().map(|_| "[redacted]").collect::<Vec<_>>())
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
+        print_redacted_hint(!reveal);
         return Ok(());
     }
     if json_output || full {
         let mut output = serde_json::to_value(plain)?;
-        if !reveal {
-            redact(&mut output);
-        }
+        let masked = !reveal && redact(&mut output);
         println!("{}", serde_json::to_string_pretty(&output)?);
+        print_redacted_hint(masked);
         return Ok(());
     }
     if let Some(field) = field {
@@ -93,10 +115,12 @@ pub(super) fn display(
             ) {
                 anyhow::bail!("output failed");
             }
+            print_redacted_hint(!reveal && !value.is_empty());
         } else if reveal {
             plain.display_field(&plain.id, field, clipboard);
         } else {
             println!("[redacted]");
+            print_redacted_hint(true);
         }
     } else if reveal {
         anyhow::ensure!(
@@ -105,6 +129,7 @@ pub(super) fn display(
         );
     } else {
         println!("[redacted]");
+        print_redacted_hint(true);
     }
     Ok(())
 }
@@ -423,4 +448,33 @@ fn malformed_totp_parameters_do_not_panic() {
     ] {
         assert!(generate_totp(secret).is_err());
     }
+}
+
+#[test]
+fn redacted_hint_is_one_line_and_actionable() {
+    assert_eq!(redacted_hint(false), None);
+    let hint = redacted_hint(true).unwrap();
+    assert_eq!(hint.lines().count(), 1);
+    for text in [
+        "redacted",
+        "--reveal",
+        "plaintext",
+        "bwu run --env VAR=ITEM -- <command>",
+        "only to a child process",
+    ] {
+        assert!(hint.contains(text));
+    }
+}
+
+#[test]
+fn redaction_reports_only_nonempty_masked_values() {
+    let mut empty = json!({"id":"id", "name":"name", "type":"login", "notes":"", "data":{"password":null}, "fields":[], "history":[]});
+    assert!(!redact(&mut empty));
+    assert_eq!(empty["notes"], "[redacted]");
+    let mut nested = json!({"data":{"password":"first", "username":"second"}, "fields":[{"name":"label", "value":"third"}], "history":[{"password":"fourth"}]});
+    assert!(redact(&mut nested));
+    assert_eq!(nested["data"]["password"], "[redacted]");
+    assert_eq!(nested["data"]["username"], "[redacted]");
+    assert_eq!(nested["fields"][0]["value"], "[redacted]");
+    assert_eq!(nested["history"][0]["password"], "[redacted]");
 }
