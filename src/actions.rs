@@ -362,3 +362,45 @@ pub fn patch_cipher(
         client.patch_cipher(token, id, patch)
     })
 }
+
+pub fn cipher_request(
+    access: &str,
+    refresh: &str,
+    method: &reqwest::Method,
+    path: &str,
+    body: Option<&serde_json::Value>,
+) -> Result<(Option<String>, serde_json::Value)> {
+    with_exchange_refresh_token(access, refresh, |token| {
+        let (client, _) = api_client()?;
+        client.cipher_request(token, method.clone(), path, body)
+    })
+}
+
+pub fn attachment_upload(
+    access: &str,
+    _refresh: &str,
+    item: &str,
+    filename: &str,
+    key: &str,
+    encrypted: &[u8],
+) -> Result<(Option<String>, String)> {
+    // Do not retry a two-stage upload automatically: the metadata may be accepted.
+    let (client, _) = api_client()?;
+    Ok((
+        None,
+        client.attachment_upload(access, item, filename, key, encrypted)?,
+    ))
+}
+
+pub fn attachment_download(
+    access: &str,
+    refresh: &str,
+    item: &str,
+    attachment: &str,
+    limit: u64,
+) -> Result<(Option<String>, (serde_json::Value, Vec<u8>))> {
+    with_exchange_refresh_token(access, refresh, |token| {
+        let (client, _) = api_client()?;
+        client.attachment_download(token, item, attachment, limit)
+    })
+}

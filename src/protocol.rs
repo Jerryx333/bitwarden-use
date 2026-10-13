@@ -191,6 +191,16 @@ pub enum Action {
         plaintext: String,
         org_id: Option<String>,
     },
+    EncryptBytes {
+        plaintext_base64: String,
+        entry_key: Option<String>,
+        org_id: Option<String>,
+    },
+    DecryptBytes {
+        cipherstring: String,
+        entry_key: Option<String>,
+        org_id: Option<String>,
+    },
     ClipboardStore {
         text: String,
     },

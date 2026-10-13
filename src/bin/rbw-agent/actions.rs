@@ -592,13 +592,13 @@ pub async fn sync(
     Ok(())
 }
 
-async fn decrypt_cipher(
+async fn decrypt_cipher_bytes(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     environment: &rbw::protocol::Environment,
     cipherstring: &str,
     entry_key: Option<&str>,
     org_id: Option<&str>,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<Vec<u8>> {
     let mut state = state.lock().await;
     if !state.master_password_reprompt_initialized() {
         let db = load_db().await?;
@@ -706,14 +706,67 @@ async fn decrypt_cipher(
 
     let cipherstring = rbw::cipherstring::CipherString::new(cipherstring)
         .context("failed to parse encrypted secret")?;
-    let plaintext = String::from_utf8(
-        cipherstring
-            .decrypt_symmetric(keys, entry_key.as_ref())
-            .context("failed to decrypt encrypted secret")?,
-    )
-    .context("failed to parse decrypted secret")?;
+    let plaintext = cipherstring
+        .decrypt_symmetric(keys, entry_key.as_ref())
+        .context("failed to decrypt encrypted secret")?;
 
     Ok(plaintext)
+}
+
+async fn decrypt_cipher(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+    cipherstring: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<String> {
+    String::from_utf8(
+        decrypt_cipher_bytes(
+            state,
+            environment,
+            cipherstring,
+            entry_key,
+            org_id,
+        )
+        .await?,
+    )
+    .context("failed to parse decrypted secret")
+}
+
+pub async fn crypt_bytes(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+    value: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+    encrypt: bool,
+) -> anyhow::Result<()> {
+    if encrypt {
+        let plaintext = zeroize::Zeroizing::new(
+            rbw::base64::decode(value)
+                .context("invalid binary plaintext encoding")?,
+        );
+        let state = state.lock().await;
+        let keys =
+            state.key(org_id).context("encryption keys unavailable")?;
+        let cipher = rbw::cipherstring::encrypt_for_entry(
+            keys, entry_key, &plaintext,
+        )?;
+        respond_encrypt(sock, cipher.to_string()).await
+    } else {
+        let plaintext = zeroize::Zeroizing::new(
+            decrypt_cipher_bytes(
+                state,
+                environment,
+                value,
+                entry_key,
+                org_id,
+            )
+            .await?,
+        );
+        respond_decrypt(sock, rbw::base64::encode(&plaintext)).await
+    }
 }
 
 pub async fn decrypt(

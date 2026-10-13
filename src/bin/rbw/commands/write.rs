@@ -574,6 +574,7 @@ mod tests {
             name: "enc:name".into(),
             key: Some("key".into()),
             master_password_reprompt: rbw::api::CipherRepromptType::None,
+            attachments: vec![],
             notes: Some("enc:notes".into()),
             fields: vec![],
             history: vec![],

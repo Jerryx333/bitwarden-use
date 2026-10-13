@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 use std::io::{Read as _, Write as _};
 
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::AsyncReadExt as _;
 
 #[derive(
     serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
@@ -19,6 +19,20 @@ pub struct Entry {
     pub history: Vec<HistoryEntry>,
     pub key: Option<String>,
     pub master_password_reprompt: crate::api::CipherRepromptType,
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
+}
+
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub struct Attachment {
+    #[serde(rename = "Id", alias = "id")]
+    pub id: String,
+    #[serde(rename = "FileName", alias = "fileName")]
+    pub file_name: String,
+    #[serde(rename = "Key", alias = "key")]
+    pub key: Option<String>,
 }
 
 impl Entry {
@@ -263,63 +277,32 @@ impl Db {
         Ok(slf)
     }
 
-    // XXX need to make this atomic
     pub fn save(&self, server: &str, email: &str) -> Result<()> {
         let file = crate::dirs::db_file(server, email);
-        // unwrap is safe here because Self::filename is explicitly
-        // constructed as a filename in a directory
-        std::fs::create_dir_all(file.parent().unwrap()).map_err(
-            |source| Error::SaveDb {
+        let json = zeroize::Zeroizing::new(
+            serde_json::to_vec(self).map_err(|source| Error::SaveDbJson {
                 source,
                 file: file.clone(),
-            },
-        )?;
-        let mut fh =
-            std::fs::File::create(&file).map_err(|source| Error::SaveDb {
-                source,
-                file: file.clone(),
-            })?;
-        fh.write_all(
-            serde_json::to_string(self)
-                .map_err(|source| Error::SaveDbJson {
-                    source,
-                    file: file.clone(),
-                })?
-                .as_bytes(),
-        )
-        .map_err(|source| Error::SaveDb { source, file })?;
-        Ok(())
+            })?,
+        );
+        save_atomic(&file, &json)
     }
 
-    // XXX need to make this atomic
     pub async fn save_async(&self, server: &str, email: &str) -> Result<()> {
         let file = crate::dirs::db_file(server, email);
-        // unwrap is safe here because Self::filename is explicitly
-        // constructed as a filename in a directory
-        tokio::fs::create_dir_all(file.parent().unwrap())
-            .await
-            .map_err(|source| Error::SaveDbAsync {
+        let json = zeroize::Zeroizing::new(
+            serde_json::to_vec(self).map_err(|source| Error::SaveDbJson {
                 source,
                 file: file.clone(),
-            })?;
-        let mut fh =
-            tokio::fs::File::create(&file).await.map_err(|source| {
-                Error::SaveDbAsync {
-                    source,
-                    file: file.clone(),
-                }
-            })?;
-        fh.write_all(
-            serde_json::to_string(self)
-                .map_err(|source| Error::SaveDbJson {
-                    source,
-                    file: file.clone(),
-                })?
-                .as_bytes(),
-        )
-        .await
-        .map_err(|source| Error::SaveDbAsync { source, file })?;
-        Ok(())
+            })?,
+        );
+        let destination = file.clone();
+        tokio::task::spawn_blocking(move || save_atomic(&destination, &json))
+            .await
+            .map_err(|source| Error::SaveDbAsync {
+                source: std::io::Error::other(source),
+                file,
+            })?
     }
 
     pub fn remove(server: &str, email: &str) -> Result<()> {
@@ -348,5 +331,61 @@ impl Db {
             || self.iterations.is_none()
             || self.kdf.is_none()
             || self.protected_key.is_none()
+    }
+}
+
+/// Readers must see either complete snapshot, never a truncated file.
+fn save_atomic(file: &std::path::Path, json: &[u8]) -> Result<()> {
+    let parent = file.parent().unwrap();
+    let error = |source| Error::SaveDb {
+        source,
+        file: file.to_owned(),
+    };
+    std::fs::create_dir_all(parent).map_err(error)?;
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(parent).map_err(error)?;
+    temporary.write_all(json).map_err(error)?;
+    temporary.as_file().sync_all().map_err(error)?;
+    temporary.persist(file).map_err(|e| error(e.error))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod atomic_tests {
+    use super::*;
+    #[test]
+    fn concurrent_reads_never_observe_partial_cache_and_permissions_are_private(
+    ) {
+        use std::os::unix::fs::PermissionsExt as _;
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("synthetic-cache.json");
+        save_atomic(&file, b"{}").unwrap();
+        let active = Arc::new(AtomicBool::new(true));
+        let reading = active.clone();
+        let path = file.clone();
+        let reader = std::thread::spawn(move || {
+            let mut reads = 0;
+            while reading.load(Ordering::Relaxed) {
+                let bytes = std::fs::read(&path).unwrap();
+                let _: serde_json::Value =
+                    serde_json::from_slice(&bytes).unwrap();
+                reads += 1;
+            }
+            reads
+        });
+        for index in 0..50 {
+            let data = serde_json::to_vec(&serde_json::json!({"index":index,"fixture":"x".repeat(128 * 1024)})).unwrap();
+            save_atomic(&file, &data).unwrap();
+        }
+        active.store(false, Ordering::Relaxed);
+        assert!(reader.join().unwrap() > 0);
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 }

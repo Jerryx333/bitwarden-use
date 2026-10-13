@@ -16,6 +16,7 @@ pub mod protocol;
 pub mod pwgen;
 pub mod wordlist;
 
+pub mod attachments;
 pub mod audit;
 pub mod keychain;
 pub mod mutation;

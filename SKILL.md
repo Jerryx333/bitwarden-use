@@ -22,6 +22,36 @@ are named `rbw` for compatibility).
 
 ## Core commands
 
+### Profile sync, native items and attachments (0.12+)
+
+Use `bwu profile sync /private/path/personal.profile.json --dry-run`, then `--yes`
+within the user's authorized sync scope. Requires Python 3.9+. It preserves the
+whole JSON in secure notes, creates native identity/card entries, uploads original
+document attachments, and verifies text plus every downloaded file. Re-running
+updates only this helper's managed entries and avoids duplicate attachment uploads.
+It leaves local sources and earlier attachment versions intact. No schedule is installed.
+
+`bwu item put - --folder profile-use --dry-run` accepts native Bitwarden-shaped JSON
+on stdin: `name`, numeric `type` (2 note, 3 card, 4 identity), `notes`, the matching
+`card`/`identity` payload, and optional `fields`. Fields use camelCase. Use `--id UUID`
+to replace an existing item's payload/notes; omitted custom fields are preserved. Never put real values in command
+arguments; pipe from the private source. Duplicate names and mixed payloads are refused.
+
+```sh
+bwu attachment list ITEM_UUID                       # names masked
+bwu attachment list ITEM_UUID --reveal
+bwu attachment upload ITEM_UUID /private/file --dry-run
+bwu attachment upload ITEM_UUID /private/file --yes
+bwu attachment download ITEM_UUID ATTACHMENT_ID --output - | consumer
+```
+
+Downloads are audited reveals; let Touch ID/master-password checks complete.
+Files are encrypted locally before upload. Downloads authenticate before writing,
+refuse overwrite, and use 0600 for output files. No shared-item writes or legacy
+keyless downloads; 128 MiB per file. If an upload fails after creating metadata,
+inspect saved state before retrying. Binary crypto needs the upgraded agent; do
+not work around it by extracting vault keys or changing reveal policy.
+
 Without `--reveal`, `get` outputs the literal `[redacted]` with exit code 0 and a hint on stderr when a value is masked; use `--reveal` or `bwu run --env VAR=ITEM -- <command>` to consume the real value.
 
 ```sh

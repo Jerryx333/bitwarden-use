@@ -17,3 +17,4 @@ jobs:
       - run: cargo test --locked --test upgrade_notice
       - run: cargo test --locked --test upgrade_flow
       - run: python3 tools/test_install.py
+      - run: python3 tools/test_profile_sync.py

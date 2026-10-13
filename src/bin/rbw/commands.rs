@@ -1,10 +1,16 @@
 mod read;
 pub use read::domain_login;
+mod attachments;
 mod folders;
 mod import;
+mod native;
 mod write;
+pub use attachments::{
+    attachment_download, attachment_list, attachment_upload,
+};
 pub use folders::{folder_create, folder_list, move_entries};
 pub use import::import;
+pub use native::item_put;
 use std::io::Write as _;
 pub use write::{edit, set, SetFields, WriteOptions};
 
@@ -4762,6 +4768,7 @@ mod test {
                 history: vec![],
                 key: None,
                 master_password_reprompt: rbw::api::CipherRepromptType::None,
+                attachments: vec![],
             },
             DecryptedSearchCipher {
                 id: id.to_string(),

@@ -228,6 +228,28 @@ enum Opt {
     },
 
     #[command(
+        about = "Sync profile-use JSON, native identity/cards and document files to the vault"
+    )]
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommand,
+    },
+    #[command(
+        about = "Create or update native secure-note, card and identity items from JSON"
+    )]
+    Item {
+        #[command(subcommand)]
+        command: ItemCommand,
+    },
+    #[command(
+        about = "List, encrypt/upload and decrypt/download item attachments"
+    )]
+    Attachment {
+        #[command(subcommand)]
+        command: AttachmentCommand,
+    },
+
+    #[command(
         about = "Generate a new password",
         long_about = "Generate a new password\n\n\
             If given a password entry name, also save the generated \
@@ -449,6 +471,9 @@ impl Opt {
             Self::StopAgent => "stop-agent".to_string(),
             Self::GenCompletions { .. } => "gen-completions".to_string(),
             Self::Upgrade { .. } => "upgrade".to_string(),
+            Self::Item { .. } => "item".to_string(),
+            Self::Profile { .. } => "profile".to_string(),
+            Self::Attachment { .. } => "attachment".to_string(),
         }
     }
 }
@@ -577,6 +602,65 @@ impl Fido2 {
         }
         .to_string()
     }
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum ProfileCommand {
+    Sync {
+        file: std::path::PathBuf,
+        #[arg(long)]
+        profile: Option<String>,
+        #[arg(long, default_value = "profile-use")]
+        folder: String,
+        #[arg(
+            long,
+            help = "Explicitly omit document files; text data is still complete"
+        )]
+        skip_attachments: bool,
+        #[command(flatten)]
+        write: commands::WriteOptions,
+    },
+}
+#[derive(Debug, clap::Subcommand)]
+enum ItemCommand {
+    #[command(
+        about = "Read native item JSON from FILE or stdin (-); output the saved UUID"
+    )]
+    Put {
+        #[arg(default_value = "-")]
+        input: std::path::PathBuf,
+        #[arg(long, conflicts_with = "folder")]
+        id: Option<uuid::Uuid>,
+        #[arg(long)]
+        folder: Option<String>,
+        #[command(flatten)]
+        write: commands::WriteOptions,
+    },
+}
+#[derive(Debug, clap::Subcommand)]
+enum AttachmentCommand {
+    List {
+        item: uuid::Uuid,
+        #[arg(long)]
+        reveal: bool,
+    },
+    Upload {
+        item: uuid::Uuid,
+        file: std::path::PathBuf,
+        #[arg(long)]
+        filename: Option<String>,
+        #[command(flatten)]
+        write: commands::WriteOptions,
+    },
+    Download {
+        item: uuid::Uuid,
+        attachment: String,
+        #[arg(
+            long,
+            help = "New output file (0600), or - to pipe plaintext directly"
+        )]
+        output: std::path::PathBuf,
+    },
 }
 
 fn main() {
@@ -712,6 +796,73 @@ fn main() {
             folder,
             write,
         } => commands::import(&file, folder.as_deref(), &write),
+        Opt::Profile { command } => match command {
+            ProfileCommand::Sync {
+                file,
+                profile,
+                folder,
+                skip_attachments,
+                write,
+            } => (|| -> anyhow::Result<()> {
+                let mut child = std::process::Command::new("python3");
+                child
+                    .arg("-c")
+                    .arg(include_str!("profile_sync.py"))
+                    .arg(file)
+                    .arg("--folder")
+                    .arg(folder)
+                    .env("PROFILE_SYNC_BWU", std::env::current_exe()?);
+                if let Some(profile) = profile {
+                    child.arg("--profile").arg(profile);
+                }
+                if skip_attachments {
+                    child.arg("--skip-attachments");
+                }
+                if write.dry_run {
+                    child.arg("--dry-run");
+                }
+                if write.yes {
+                    child.arg("--yes");
+                }
+                let status = child
+                    .status()
+                    .context("profile sync requires Python 3.9 or newer")?;
+                anyhow::ensure!(
+                    status.success(),
+                    "profile sync did not complete"
+                );
+                Ok(())
+            })(),
+        },
+        Opt::Item { command } => match command {
+            ItemCommand::Put {
+                input,
+                id,
+                folder,
+                write,
+            } => commands::item_put(&input, id, folder.as_deref(), &write),
+        },
+        Opt::Attachment { command } => match command {
+            AttachmentCommand::List { item, reveal } => {
+                commands::attachment_list(item, reveal)
+            }
+            AttachmentCommand::Upload {
+                item,
+                file,
+                filename,
+                write,
+            } => commands::attachment_upload(
+                item,
+                &file,
+                filename.as_deref(),
+                &write,
+            ),
+            AttachmentCommand::Download {
+                item,
+                attachment,
+                output,
+            } => commands::attachment_download(item, &attachment, &output),
+        },
         Opt::Generate {
             len,
             name,

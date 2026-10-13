@@ -398,6 +398,8 @@ struct SyncRes {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResCipher {
+    #[serde(rename = "Attachments", alias = "attachments", default)]
+    attachments: Option<Vec<crate::db::Attachment>>,
     #[serde(rename = "Id", alias = "id")]
     id: String,
     #[serde(rename = "FolderId", alias = "folderId")]
@@ -578,6 +580,7 @@ impl SyncResCipher {
             history,
             key: self.key.clone(),
             master_password_reprompt: self.reprompt,
+            attachments: self.attachments.clone().unwrap_or_default(),
         })
     }
 }
@@ -856,7 +859,10 @@ struct CipherField {
 // this is just a name and some notes, both of which are already on the cipher
 // object
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-struct CipherSecureNote {}
+struct CipherSecureNote {
+    #[serde(rename = "type", default)]
+    ty: u8,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResPasswordHistory {
@@ -1410,6 +1416,7 @@ impl Client {
                 exp_year,
                 code,
             } => {
+                req.ty = 3;
                 req.card = Some(CipherCard {
                     cardholder_name: cardholder_name.clone(),
                     number: number.clone(),
@@ -1438,6 +1445,7 @@ impl Client {
                 passport_number,
                 username,
             } => {
+                req.ty = 4;
                 req.identity = Some(CipherIdentity {
                     title: title.clone(),
                     first_name: first_name.clone(),
@@ -1459,7 +1467,8 @@ impl Client {
                 });
             }
             crate::db::EntryData::SecureNote => {
-                req.secure_note = Some(CipherSecureNote {});
+                req.ty = 2;
+                req.secure_note = Some(CipherSecureNote { ty: 0 });
             }
             crate::db::EntryData::SshKey { .. } => unreachable!(),
         }
@@ -1479,6 +1488,151 @@ impl Client {
                 status: res.status().as_u16(),
             }),
         }
+    }
+
+    fn transfer_client(&self) -> Result<reqwest::blocking::Client> {
+        let mut builder = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(180))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none());
+        if let Some(path) = &self.client_cert_path {
+            let bytes =
+                zeroize::Zeroizing::new(std::fs::read(path).map_err(
+                    |source| Error::LoadClientCert {
+                        source,
+                        file: path.clone(),
+                    },
+                )?);
+            builder = builder.identity(
+                reqwest::Identity::from_pem(&bytes).map_err(|source| {
+                    Error::CreateReqwestClient { source }
+                })?,
+            );
+        }
+        builder
+            .build()
+            .map_err(|source| Error::CreateReqwestClient { source })
+    }
+
+    /// Only encrypted item data may be passed to this method.
+    pub fn cipher_request(
+        &self,
+        token: &str,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        let client = self.transfer_client()?;
+        let mut request = client
+            .request(method, self.api_url(path))
+            .bearer_auth(token);
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        let response =
+            request.send().map_err(|source| Error::Reqwest { source })?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(Error::RequestUnauthorized);
+        }
+        if !response.status().is_success() {
+            return Err(Error::RequestFailed {
+                status: response.status().as_u16(),
+            });
+        }
+        response.json().map_err(|source| Error::Reqwest { source })
+    }
+
+    pub fn attachment_upload(
+        &self,
+        token: &str,
+        item: &str,
+        filename: &str,
+        key: &str,
+        encrypted: &[u8],
+    ) -> Result<String> {
+        let created = self.cipher_request(token, reqwest::Method::POST, &format!("/ciphers/{item}/attachment/v2"), Some(&serde_json::json!({"fileName":filename,"key":key,"fileSize":encrypted.len()})))?;
+        let id = created["attachmentId"]
+            .as_str()
+            .filter(|id| {
+                !id.is_empty()
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            })
+            .ok_or_else(|| Error::UnsafeWrite {
+                message: "invalid attachment id from server".into(),
+            })?;
+        let client = self.transfer_client()?;
+        let response = if created["fileUploadType"].as_u64() == Some(0) {
+            // Use our configured API origin; never forward bearer tokens to an upload URL.
+            client.post(self.api_url(&format!("/ciphers/{item}/attachment/{id}")))
+                .bearer_auth(token)
+                .multipart(reqwest::blocking::multipart::Form::new().part("data", reqwest::blocking::multipart::Part::bytes(encrypted.to_vec()).file_name(filename.to_owned()).mime_str("application/octet-stream").map_err(|_| Error::UnsafeWrite { message: "invalid attachment content type".into() })?))
+                .send()
+        } else if created["fileUploadType"].as_u64() == Some(1) {
+            let url = checked_download_url(created["url"].as_str().unwrap_or(""), &self.api_url(""))?;
+            client.put(url).header("x-ms-blob-type", "BlockBlob").header("Content-Type", "application/octet-stream").body(encrypted.to_vec()).send()
+        } else { return Err(Error::UnsafeWrite { message: "unsupported attachment upload type; metadata may already exist, inspect before retrying".into() }); }
+        .map_err(|_| Error::UnsafeWrite { message: "attachment upload failed; metadata may already exist, inspect before retrying".into() })?;
+        if !response.status().is_success() {
+            return Err(Error::RequestFailed {
+                status: response.status().as_u16(),
+            });
+        }
+        Ok(id.to_owned())
+    }
+
+    pub fn attachment_download(
+        &self,
+        token: &str,
+        item: &str,
+        attachment: &str,
+        limit: u64,
+    ) -> Result<(serde_json::Value, Vec<u8>)> {
+        use std::io::Read as _;
+        let metadata = self.cipher_request(
+            token,
+            reqwest::Method::GET,
+            &format!("/ciphers/{item}/attachment/{attachment}"),
+            None,
+        )?;
+        let url = checked_download_url(
+            metadata["url"].as_str().unwrap_or(""),
+            &self.api_url(""),
+        )?;
+        // Signed URLs carry their own authorization. No vault token or client certificate.
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(180))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|source| Error::CreateReqwestClient { source })?;
+        let response =
+            client.get(url).send().map_err(|_| Error::UnsafeWrite {
+                message: "attachment download failed".into(),
+            })?;
+        if !response.status().is_success() {
+            return Err(Error::RequestFailed {
+                status: response.status().as_u16(),
+            });
+        }
+        if response.content_length().is_some_and(|size| size > limit) {
+            return Err(Error::UnsafeWrite {
+                message: "attachment exceeds size limit".into(),
+            });
+        }
+        let mut bytes = Vec::new();
+        response
+            .take(limit + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| Error::UnsafeWrite {
+                message: "failed to read encrypted attachment".into(),
+            })?;
+        if bytes.len() as u64 > limit {
+            return Err(Error::UnsafeWrite {
+                message: "attachment exceeds size limit".into(),
+            });
+        }
+        Ok((metadata, bytes))
     }
 
     /// Preserve server-only metadata and reject stale edits before PUT.
@@ -2157,5 +2311,180 @@ mod compat_tests {
             .unwrap_err();
         server.join().unwrap();
         assert!(err.to_string().contains("401"), "{err}");
+    }
+}
+
+fn checked_download_url(value: &str, api_origin: &str) -> Result<url::Url> {
+    let origin =
+        url::Url::parse(api_origin).map_err(|_| Error::UnsafeWrite {
+            message: "invalid API origin".into(),
+        })?;
+    let url = url::Url::parse(value).map_err(|_| Error::UnsafeWrite {
+        message: "invalid attachment URL".into(),
+    })?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || !(url.scheme() == "https"
+            || (url.scheme() == "http" && url.origin() == origin.origin()))
+    {
+        return Err(Error::UnsafeWrite {
+            message: "unsafe attachment URL".into(),
+        });
+    }
+    Ok(url)
+}
+
+#[cfg(test)]
+mod native_transport_tests {
+    use super::*;
+    use std::io::{BufRead as _, Read as _, Write as _};
+
+    #[test]
+    fn native_creation_sends_the_correct_cipher_type() {
+        for (kind, value) in [
+            (2, serde_json::json!("SecureNote")),
+            (3, serde_json::json!({"Card":{}})),
+            (4, serde_json::json!({"Identity":{}})),
+        ] {
+            let data: crate::db::EntryData =
+                serde_json::from_value(value).unwrap();
+            let listener =
+                std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader =
+                    std::io::BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                assert!(line.starts_with("POST /ciphers "));
+                let mut length = 0;
+                loop {
+                    line.clear();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line
+                        .to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                    {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let body: serde_json::Value =
+                    serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["type"], kind);
+                assert_eq!(body["login"], serde_json::Value::Null);
+                if kind == 2 {
+                    assert_eq!(body["secureNote"]["type"], 0);
+                }
+                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").unwrap();
+            });
+            Client::new(&format!("http://{address}"), "", "", None)
+                .add("synthetic-token", "encrypted-name", &data, None, None)
+                .unwrap();
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn attachment_multipart_is_binary_and_preserves_every_byte() {
+        let encrypted = vec![0xff; 65];
+        let expected = encrypted.clone();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for index in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader =
+                    std::io::BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                assert!(line.starts_with(if index == 0 {
+                    "POST /ciphers/fixture/attachment/v2 "
+                } else {
+                    "POST /ciphers/fixture/attachment/fixture-attachment "
+                }));
+                let mut length = 0;
+                loop {
+                    line.clear();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line
+                        .to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                    {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let response = if index == 0 {
+                    assert_eq!(
+                        serde_json::from_slice::<serde_json::Value>(&body)
+                            .unwrap()["fileSize"],
+                        expected.len()
+                    );
+                    r#"{"attachmentId":"fixture-attachment","fileUploadType":0}"#
+                } else {
+                    assert!(body
+                        .windows(expected.len())
+                        .any(|window| window == expected));
+                    assert!(String::from_utf8_lossy(&body)
+                        .contains("Content-Type: application/octet-stream"));
+                    "{}"
+                };
+                write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",response.len(),response).unwrap();
+            }
+        });
+        let attachment =
+            Client::new(&format!("http://{address}"), "", "", None)
+                .attachment_upload(
+                    "synthetic-token",
+                    "fixture",
+                    "encrypted-filename",
+                    "encrypted-key",
+                    &encrypted,
+                )
+                .unwrap();
+        assert_eq!(attachment, "fixture-attachment");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn rejects_unsafe_signed_urls_without_leaking_them() {
+        for url in [
+            "http://other.invalid/file",
+            "https://user:password@example.invalid/file",
+            "file:///tmp/file",
+            "not a url",
+        ] {
+            assert!(checked_download_url(
+                url,
+                "https://vault.example.invalid/api"
+            )
+            .is_err());
+        }
+        assert!(checked_download_url(
+            "http://localhost/file",
+            "http://localhost/api"
+        )
+        .is_ok());
+        assert!(checked_download_url(
+            "https://storage.example.invalid/file?token=synthetic",
+            "https://vault.example.invalid/api"
+        )
+        .is_ok());
     }
 }

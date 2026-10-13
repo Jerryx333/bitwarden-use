@@ -1,5 +1,47 @@
 # bitwarden-use
 
+## Profile data and attachments
+
+`profile sync` (Python 3.9+) copies a profile-use JSON file into your vault. It
+creates native identity/card items, preserves every JSON section in secure notes,
+and uploads document originals as encrypted attachments. It verifies the text by
+reassembly and each attachment by downloading and checking its SHA-256. No plaintext
+export, secret command arguments or source-file changes are needed.
+
+```sh
+bwu profile sync "$PROFILE_USE_DIR/personal.profile.json" --dry-run
+bwu profile sync "$PROFILE_USE_DIR/personal.profile.json" --yes
+```
+
+The destination defaults to the `profile-use` folder. `--profile` and `--folder`
+select another profile or destination; `--skip-attachments` explicitly omits files.
+Re-running updates managed items and skips unchanged values/files. It refuses
+duplicate names, unrelated entries, changed file hashes and paths outside the
+profile's attachment directory. Changed files retain their earlier uploaded versions.
+Missing files stop the operation before any write. The manifest is saved only after
+all readback checks pass. No background schedule is installed.
+
+For native writes, send JSON via stdin (type 2 = secure note, 3 = card, 4 = identity):
+
+```sh
+printf '%s' '{"name":"Example note","type":2,"notes":"Example text"}' |
+  bwu item put - --folder profile-use --dry-run
+# Pass --yes to create; --id UUID replaces the selected native payload/notes; fields change only when provided.
+bwu attachment list ITEM_UUID                   # filenames masked
+bwu attachment list ITEM_UUID --reveal
+bwu attachment upload ITEM_UUID /private/file --dry-run
+bwu attachment upload ITEM_UUID /private/file --yes
+bwu attachment download ITEM_UUID ATTACHMENT_ID --output /private/new-file
+bwu attachment download ITEM_UUID ATTACHMENT_ID --output - | consuming-command
+```
+
+Attachment files are limited to 128 MiB. Downloads refuse overwrites, create files
+with mode 0600, authenticate ciphertext before writing plaintext and use the normal
+reveal authorization/audit. Shared-item writes and legacy keyless attachments are
+not supported. An interrupted two-stage upload may leave metadata on the server;
+inspect that item before retrying. The upgraded agent must be running for binary
+key wrapping (`bwu stop-agent`, then `bwu unlock` after installing both binaries).
+
 Version 0.7.0 is built for logging in from a browser agent: `login --domain --list` ranks the
 accounts for a site by how recently you used them, an `_autotype` field describes a site's login
 steps, `run` asks once per item, and clipboard copies are hidden from clipboard history and

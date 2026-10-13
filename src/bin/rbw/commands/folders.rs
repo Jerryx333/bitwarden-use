@@ -264,6 +264,7 @@ mod tests {
             history: vec![],
             key: None,
             master_password_reprompt: rbw::api::CipherRepromptType::None,
+            attachments: vec![],
         }];
         assert_eq!(
             selected(&entries, &[first]).unwrap()[0].id,

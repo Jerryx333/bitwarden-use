@@ -226,6 +226,40 @@ async fn handle_request(
             .await?;
             true
         }
+        rbw::protocol::Action::EncryptBytes {
+            plaintext_base64,
+            entry_key,
+            org_id,
+        } => {
+            crate::actions::crypt_bytes(
+                sock,
+                state.clone(),
+                &environment,
+                plaintext_base64,
+                entry_key.as_deref(),
+                org_id.as_deref(),
+                true,
+            )
+            .await?;
+            true
+        }
+        rbw::protocol::Action::DecryptBytes {
+            cipherstring,
+            entry_key,
+            org_id,
+        } => {
+            crate::actions::crypt_bytes(
+                sock,
+                state.clone(),
+                &environment,
+                cipherstring,
+                entry_key.as_deref(),
+                org_id.as_deref(),
+                false,
+            )
+            .await?;
+            true
+        }
         rbw::protocol::Action::ClipboardStore { text } => {
             crate::actions::clipboard_store(sock, state.clone(), text)
                 .await?;

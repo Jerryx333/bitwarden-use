@@ -214,3 +214,43 @@ fn get_environment() -> rbw::protocol::Environment {
 pub fn unlock_keychain(store: bool) -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::UnlockKeychain { store })
 }
+
+pub fn encrypt_bytes(
+    bytes: &[u8],
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<String> {
+    let mut sock = connect()?;
+    sock.send(&rbw::protocol::Request::new(
+        get_environment(),
+        rbw::protocol::Action::EncryptBytes {
+            plaintext_base64: rbw::base64::encode(bytes),
+            entry_key: entry_key.map(str::to_owned),
+            org_id: org_id.map(str::to_owned),
+        },
+    ))?;
+    match sock.recv()? {
+        rbw::protocol::Response::Encrypt { cipherstring } => Ok(cipherstring),
+        _ => anyhow::bail!("binary crypto unavailable; restart the upgraded bitwarden-use-agent"),
+    }
+}
+
+pub fn decrypt_bytes(
+    cipher: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<zeroize::Zeroizing<Vec<u8>>> {
+    let mut sock = connect()?;
+    sock.send(&rbw::protocol::Request::new(
+        get_environment(),
+        rbw::protocol::Action::DecryptBytes {
+            cipherstring: cipher.to_owned(),
+            entry_key: entry_key.map(str::to_owned),
+            org_id: org_id.map(str::to_owned),
+        },
+    ))?;
+    match sock.recv()? {
+        rbw::protocol::Response::Decrypt { plaintext } => Ok(zeroize::Zeroizing::new(rbw::base64::decode(&plaintext)?)),
+        _ => anyhow::bail!("binary crypto unavailable; restart the upgraded bitwarden-use-agent"),
+    }
+}

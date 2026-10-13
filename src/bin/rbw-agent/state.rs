@@ -99,6 +99,9 @@ impl State {
             if !entry.master_password_reprompt() {
                 continue;
             }
+            for attachment in &entry.attachments {
+                insert(attachment.key.as_deref());
+            }
 
             match &entry.data {
                 rbw::db::EntryData::Login { password, totp, .. } => {
