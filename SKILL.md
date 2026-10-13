@@ -32,8 +32,8 @@ updates only this helper's managed entries and avoids duplicate attachment uploa
 It leaves local sources and earlier attachment versions intact. No schedule is installed.
 
 `bwu item put - --folder profile-use --dry-run` accepts native Bitwarden-shaped JSON
-on stdin: `name`, numeric `type` (2 note, 3 card, 4 identity), `notes`, the matching
-`card`/`identity` payload, and optional `fields`. Fields use camelCase. Use `--id UUID`
+on stdin: `name`, numeric `type` (2 note, 3 card, 4 identity, 5 SSH key), `notes`, the matching
+`card`/`identity`/`sshKey` payload, and optional `fields`. Fields use camelCase. SSH keys require `privateKey`, `publicKey` and `keyFingerprint`; read private files directly into the stdin producer, never print or put them in arguments. Use `--id UUID`
 to replace an existing item's payload/notes; omitted custom fields are preserved. Never put real values in command
 arguments; pipe from the private source. Type changes require `--convert`: a new
 UUID is created, the original is retained, and entries with attachments are refused.

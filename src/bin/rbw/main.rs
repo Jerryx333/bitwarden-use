@@ -235,7 +235,7 @@ enum Opt {
         command: ProfileCommand,
     },
     #[command(
-        about = "Create or update native secure-note, card and identity items from JSON"
+        about = "Create or update native secure-note, card, identity and SSH-key items from JSON"
     )]
     Item {
         #[command(subcommand)]

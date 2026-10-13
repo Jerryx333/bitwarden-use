@@ -21,7 +21,7 @@ profile's attachment directory. Changed files retain their earlier uploaded vers
 Missing files stop the operation before any write. The manifest is saved only after
 all readback checks pass. No background schedule is installed.
 
-For native writes, send JSON via stdin (type 2 = secure note, 3 = card, 4 = identity):
+For native writes, send JSON via stdin (type 2 = secure note, 3 = card, 4 = identity, 5 = SSH key):
 
 ```sh
 printf '%s' '{"name":"Example note","type":2,"notes":"Example text"}' |

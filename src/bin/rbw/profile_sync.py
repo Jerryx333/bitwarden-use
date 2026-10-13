@@ -102,7 +102,7 @@ def plan(data, profile, profile_file, skip_attachments=False):
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", path):
             raise SyncError("invalid payment field path")
         items.append({"name": prefix + " / card / " + path, "type": 3, "card": card,
-                      "notes": note(profile, "card:" + path, original)})
+                      "notes": note(profile, "card:" + path, {k: original[k] for k in ("label", "billing_address_same_as_profile") if k in original})})
     root = (profile_file.parent / "attachments" / profile).resolve()
     for doc, metadata in data.get("documents", {}).items():
         if not isinstance(metadata, dict) or not metadata.get("file") or skip_attachments:

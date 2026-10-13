@@ -46,6 +46,7 @@ struct Item {
     card: Option<Value>,
     identity: Option<Value>,
     secure_note: Option<Value>,
+    ssh_key: Option<Value>,
     #[serde(default)]
     fields: Option<Vec<Value>>,
 }
@@ -70,12 +71,18 @@ impl Item {
         );
         match self.kind {
             2 => {
-                anyhow::ensure!(self.card.is_none() && self.identity.is_none() && self.notes.as_ref().is_some_and(|s| !s.is_empty()), "secure note requires notes and no card/identity payload");
+                anyhow::ensure!(self.ssh_key.is_none() && self.card.is_none() && self.identity.is_none() && self.notes.as_ref().is_some_and(|s| !s.is_empty()), "secure note requires notes and no card/identity payload");
                 if let Some(note) = &self.secure_note { anyhow::ensure!(note == &json!({"type":0}), "secureNote must be an object with type zero"); }
             }
-            3 => { anyhow::ensure!(self.identity.is_none() && self.secure_note.is_none(), "card cannot include identity/secureNote payload"); validate_object(self.card.as_ref().context("card payload required")?, CARD)?; }
-            4 => { anyhow::ensure!(self.card.is_none() && self.secure_note.is_none(), "identity cannot include card/secureNote payload"); validate_object(self.identity.as_ref().context("identity payload required")?, IDENTITY)?; }
-            _ => anyhow::bail!("supported item types: 2 (secure note), 3 (card), 4 (identity)"),
+            3 => { anyhow::ensure!(self.ssh_key.is_none() && self.identity.is_none() && self.secure_note.is_none(), "card cannot include identity/secureNote payload"); validate_object(self.card.as_ref().context("card payload required")?, CARD)?; }
+            4 => { anyhow::ensure!(self.ssh_key.is_none() && self.card.is_none() && self.secure_note.is_none(), "identity cannot include card/secureNote payload"); validate_object(self.identity.as_ref().context("identity payload required")?, IDENTITY)?; }
+            5 => {
+                anyhow::ensure!(self.card.is_none() && self.identity.is_none() && self.secure_note.is_none(), "SSH key cannot include another type payload");
+                let key = self.ssh_key.as_ref().context("sshKey payload required")?;
+                validate_object(key, &["privateKey","publicKey","keyFingerprint"])?;
+                anyhow::ensure!(["privateKey","publicKey","keyFingerprint"].iter().all(|field| key[*field].as_str().is_some_and(|s| !s.trim().is_empty())), "SSH private key, public key and fingerprint are required");
+            }
+            _ => anyhow::bail!("supported item types: 2 (secure note), 3 (card), 4 (identity), 5 (SSH key)"),
         }
         anyhow::ensure!(self.notes.as_ref().is_none_or(|s| encrypted_string_length(s) <= 10_000), "encrypted notes exceed the server limit; split large profiles into smaller sections");
         let mut seen = std::collections::HashSet::new();
@@ -116,7 +123,7 @@ impl Item {
         };
         let fields = self.fields.iter().flatten().map(|field| Ok(json!({"name":encrypt(&field["name"])? ,"value":encrypt(&field["value"])? ,"type":field["type"]}))).collect::<anyhow::Result<Vec<_>>>()?;
         Ok(
-            json!({"type":self.kind,"name":encrypt(&json!(self.name))?,"notes":encrypt(&json!(self.notes))?,"login":null,"card":object(self.card.as_ref())?,"identity":object(self.identity.as_ref())?,"secureNote":if self.kind == 2 {json!({"type":0})} else {Value::Null},"fields":fields}),
+            json!({"type":self.kind,"name":encrypt(&json!(self.name))?,"notes":encrypt(&json!(self.notes))?,"login":null,"card":object(self.card.as_ref())?,"identity":object(self.identity.as_ref())?,"sshKey":object(self.ssh_key.as_ref())?,"secureNote":if self.kind == 2 {json!({"type":0})} else {Value::Null},"fields":fields}),
         )
     }
 }
@@ -298,6 +305,7 @@ pub fn item_put(
             "card",
             "identity",
             "secureNote",
+            "sshKey",
             "login",
             "fields",
         ] {
@@ -355,6 +363,19 @@ pub fn item_put(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ssh_payload_requires_all_fields_and_rejects_mixed_types() {
+        for input in [
+            json!({"name":"fixture","type":5,"sshKey":{"publicKey":"fixture"}}),
+            json!({"name":"fixture","type":3,"card":{},"sshKey":{}}),
+        ] {
+            assert!(serde_json::from_value::<Item>(input)
+                .unwrap()
+                .validate()
+                .is_err());
+        }
+        serde_json::from_value::<Item>(json!({"name":"fixture","type":5,"sshKey":{"privateKey":"synthetic-private","publicKey":"synthetic-public","keyFingerprint":"SHA256:synthetic"}})).unwrap().validate().unwrap();
+    }
     #[test]
     fn notes_limit_accounts_for_utf8_and_encryption_overhead() {
         assert!(encrypted_string_length(&"x".repeat(7_000)) < 10_000);

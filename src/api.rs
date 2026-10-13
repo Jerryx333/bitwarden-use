@@ -932,6 +932,9 @@ struct FoldersPostReq {
 // Used for the Bitwarden-Client-Name header. Accepted values:
 // https://github.com/bitwarden/server/blob/main/src/Core/Enums/BitwardenClient.cs
 const BITWARDEN_CLIENT: &str = "cli";
+// Protocol capability level; the actual CLI version remains in User-Agent.
+// Vaultwarden omits SSH key ciphers for client capabilities before this version.
+const BITWARDEN_CLIENT_VERSION: &str = "2024.12.0";
 
 // DeviceType.LinuxDesktop, as per Bitwarden API device types.
 const DEVICE_TYPE: u8 = 8;
@@ -968,7 +971,7 @@ impl Client {
         );
         default_headers.insert(
             "Bitwarden-Client-Version",
-            axum::http::HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+            axum::http::HeaderValue::from_static(BITWARDEN_CLIENT_VERSION),
         );
         default_headers.append(
             "Device-Type",
@@ -2362,6 +2365,49 @@ mod native_transport_tests {
     use super::*;
     use std::io::{BufRead as _, Read as _, Write as _};
 
+    #[tokio::test]
+    async fn ssh_capability_header_does_not_hide_ssh_ciphers() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader =
+                std::io::BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let mut headers = std::collections::HashMap::new();
+            loop {
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                let (key, value) = line.split_once(':').unwrap();
+                headers.insert(key.to_lowercase(), value.trim().to_owned());
+            }
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+            headers
+        });
+        let client = Client::new("", "", "", None)
+            .reqwest_client()
+            .await
+            .unwrap();
+        client
+            .get(format!("http://{address}/sync"))
+            .send()
+            .await
+            .unwrap();
+        let headers = server.join().unwrap();
+        let version: Vec<u32> = headers["bitwarden-client-version"]
+            .split('.')
+            .map(|part| part.parse().unwrap())
+            .collect();
+        assert!(version.as_slice() >= [2024, 12, 0].as_slice());
+        assert!(headers["user-agent"].contains(env!("CARGO_PKG_VERSION")));
+    }
     #[test]
     fn explicit_server_type_ignores_inactive_payloads_after_conversion() {
         let value = serde_json::json!({"id":"fixture","name":"encrypted-name","type":2,"reprompt":0,"login":{"username":"encrypted-username"},"secureNote":{"type":0}});

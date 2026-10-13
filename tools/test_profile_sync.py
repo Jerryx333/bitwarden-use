@@ -17,7 +17,7 @@ class ProfileSyncTests(unittest.TestCase):
         data = {"identity": {"given_name": "Taro", "family_name": "Yamada"},
                 "contact": {"email": "taro@example.com"},
                 "notes": '"\\日本語🙂' * 4000,
-                "payment": {"card": {"number": "4111111111111111", "expiry": "12/29", "holder": "Taro"}}}
+                "payment": {"card": {"number": "4111111111111111", "expiry": "12/29", "holder": "Taro", "cvv": "123", "label": "Example card"}}}
         items, files, manifest = sync.plan(data, "fixture", Path("/nonexistent/fixture.profile.json"))
         self.assertFalse(files)
         stored = sync.json.loads(manifest["notes"])["data"]
@@ -32,6 +32,9 @@ class ProfileSyncTests(unittest.TestCase):
         self.assertEqual(native["identity"]["firstName"], "Taro")
         card = next(i for i in items if i["type"] == 3)
         self.assertEqual(card["card"]["expYear"], "2029")
+        self.assertEqual(sync.json.loads(card["notes"])["data"], {"label":"Example card"})
+        self.assertNotIn("4111111111111111", card["notes"])
+        self.assertNotIn('"cvv"', card["notes"])
 
     def test_attachment_hash_and_path_validation(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -1,5 +1,9 @@
 # 0.12.0 (unreleased)
 
+- Keep card numbers and security codes out of native card notes; retain all source data in the dedicated secure-note backup and the native masked card fields.
+
+- Add native SSH-key JSON writes (type 5), with required private/public/fingerprint fields. Advertise SSH-capable protocol compatibility so Vaultwarden includes SSH keys in sync while keeping the actual CLI version in User-Agent.
+
 - Reject silent in-place type changes; `item put --id --convert` creates a replacement with a new UUID and retains the original. Respect explicit server cipher types even if inactive payloads remain.
 
 - Save the encrypted vault cache atomically with mode 0600 so background sync cannot expose a truncated JSON file to concurrent readers.
