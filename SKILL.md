@@ -24,8 +24,14 @@ are named `rbw` for compatibility).
 
 ### Profile sync, native items and attachments (0.12+)
 
-Use `bwu profile sync /private/path/personal.profile.json --dry-run`, then `--yes`
-within the user's authorized sync scope. Requires Python 3.9+. It preserves the
+Personal facts and form workflows belong to profile-use; infrastructure notes belong
+to memory-use. Secrets have one authoritative vault entry; those workflows may reference
+its UUID/field. bitwarden-use owns generic vault operations and authorization, not
+personal schemas, form formatting or technical runbooks.
+
+Use profile-use's `python3 scripts/profile_use.py sync --profile personal --dry-run`,
+then `--yes` within the user's authorized sync scope. The old `bwu profile sync FILE`
+delegates to the installed profile-use skill. Requires Python 3.9+. It preserves the
 whole JSON in secure notes, creates native identity/card entries, uploads original
 document attachments, and verifies text plus every downloaded file. Re-running
 updates only this helper's managed entries and avoids duplicate attachment uploads.

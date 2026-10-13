@@ -46,7 +46,6 @@ jobs:
       - name: Format and unit tests
         run: |
           python3 tools/test_install.py
-          python3 tools/test_profile_sync.py
           cargo fmt --all --check
           cargo test --locked --lib --bins
           cargo test --locked --no-default-features --bin bitwarden-use cli_tests

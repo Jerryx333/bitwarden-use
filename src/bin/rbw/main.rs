@@ -5,6 +5,7 @@ use clap::{CommandFactory as _, Parser as _};
 
 mod actions;
 mod commands;
+mod profile_delegate;
 mod sock;
 mod upgrade;
 
@@ -228,7 +229,7 @@ enum Opt {
     },
 
     #[command(
-        about = "Sync profile-use JSON, native identity/cards and document files to the vault"
+        about = "Compatibility alias for the installed profile-use skill's sync command"
     )]
     Profile {
         #[command(subcommand)]
@@ -809,36 +810,13 @@ fn main() {
                 folder,
                 skip_attachments,
                 write,
-            } => (|| -> anyhow::Result<()> {
-                let mut child = std::process::Command::new("python3");
-                child
-                    .arg("-c")
-                    .arg(include_str!("profile_sync.py"))
-                    .arg(file)
-                    .arg("--folder")
-                    .arg(folder)
-                    .env("PROFILE_SYNC_BWU", std::env::current_exe()?);
-                if let Some(profile) = profile {
-                    child.arg("--profile").arg(profile);
-                }
-                if skip_attachments {
-                    child.arg("--skip-attachments");
-                }
-                if write.dry_run {
-                    child.arg("--dry-run");
-                }
-                if write.yes {
-                    child.arg("--yes");
-                }
-                let status = child
-                    .status()
-                    .context("profile sync requires Python 3.9 or newer")?;
-                anyhow::ensure!(
-                    status.success(),
-                    "profile sync did not complete"
-                );
-                Ok(())
-            })(),
+            } => profile_delegate::sync(
+                &file,
+                profile.as_deref(),
+                &folder,
+                skip_attachments,
+                &write,
+            ),
         },
         Opt::Item { command } => match command {
             ItemCommand::Put {

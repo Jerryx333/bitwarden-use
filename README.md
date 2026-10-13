@@ -2,7 +2,13 @@
 
 ## Profile data and attachments
 
-`profile sync` (Python 3.9+) copies a profile-use JSON file into your vault. It
+Personal profile policy and synchronization are owned by
+[profile-use](https://github.com/leeguooooo/profile-use). Infrastructure and runbooks
+belong to memory-use; secret values belong to the vault. The first two workflows
+can reference a vault entry rather than keeping another editable secret copy.
+
+`bwu profile sync` is a compatibility alias that requires the installed profile-use
+skill. Its `python3 scripts/profile_use.py sync` (Python 3.9+) copies a profile into your vault. It
 creates native identity/card items, preserves every JSON section in secure notes,
 and uploads document originals as encrypted attachments. It verifies the text by
 reassembly and each attachment by downloading and checking its SHA-256. No plaintext
