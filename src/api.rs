@@ -398,6 +398,9 @@ struct SyncRes {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResCipher {
+    #[serde(rename = "Type", alias = "type", default)]
+    ty: Option<u8>,
+
     #[serde(rename = "Attachments", alias = "attachments", default)]
     attachments: Option<Vec<crate::db::Attachment>>,
     #[serde(rename = "Id", alias = "id")]
@@ -476,7 +479,11 @@ impl SyncResCipher {
                 }
                 (folder_name, Some(folder_id))
             });
-        let data = if let Some(login) = &self.login {
+        let data = if let Some(login) = self
+            .login
+            .as_ref()
+            .filter(|_| self.ty.is_none_or(|ty| ty == 1))
+        {
             crate::db::EntryData::Login {
                 username: login.username.clone(),
                 password: login.password.clone(),
@@ -517,7 +524,11 @@ impl SyncResCipher {
                             .collect()
                     }),
             }
-        } else if let Some(card) = &self.card {
+        } else if let Some(card) = self
+            .card
+            .as_ref()
+            .filter(|_| self.ty.is_none_or(|ty| ty == 3))
+        {
             crate::db::EntryData::Card {
                 cardholder_name: card.cardholder_name.clone(),
                 number: card.number.clone(),
@@ -526,7 +537,11 @@ impl SyncResCipher {
                 exp_year: card.exp_year.clone(),
                 code: card.code.clone(),
             }
-        } else if let Some(identity) = &self.identity {
+        } else if let Some(identity) = self
+            .identity
+            .as_ref()
+            .filter(|_| self.ty.is_none_or(|ty| ty == 4))
+        {
             crate::db::EntryData::Identity {
                 title: identity.title.clone(),
                 first_name: identity.first_name.clone(),
@@ -546,9 +561,17 @@ impl SyncResCipher {
                 passport_number: identity.passport_number.clone(),
                 username: identity.username.clone(),
             }
-        } else if let Some(_secure_note) = &self.secure_note {
+        } else if let Some(_secure_note) = self
+            .secure_note
+            .as_ref()
+            .filter(|_| self.ty.is_none_or(|ty| ty == 2))
+        {
             crate::db::EntryData::SecureNote
-        } else if let Some(ssh_key) = &self.ssh_key {
+        } else if let Some(ssh_key) = self
+            .ssh_key
+            .as_ref()
+            .filter(|_| self.ty.is_none_or(|ty| ty == 5))
+        {
             crate::db::EntryData::SshKey {
                 private_key: ssh_key.private_key.clone(),
                 public_key: ssh_key.public_key.clone(),
@@ -2339,6 +2362,23 @@ mod native_transport_tests {
     use super::*;
     use std::io::{BufRead as _, Read as _, Write as _};
 
+    #[test]
+    fn explicit_server_type_ignores_inactive_payloads_after_conversion() {
+        let value = serde_json::json!({"id":"fixture","name":"encrypted-name","type":2,"reprompt":0,"login":{"username":"encrypted-username"},"secureNote":{"type":0}});
+        let cipher: SyncResCipher =
+            serde_json::from_value(value.clone()).unwrap();
+        assert!(matches!(
+            cipher.to_entry(&[]).unwrap().data,
+            crate::db::EntryData::SecureNote
+        ));
+        let mut legacy = value;
+        legacy.as_object_mut().unwrap().remove("type");
+        let cipher: SyncResCipher = serde_json::from_value(legacy).unwrap();
+        assert!(matches!(
+            cipher.to_entry(&[]).unwrap().data,
+            crate::db::EntryData::Login { .. }
+        ));
+    }
     #[test]
     fn native_creation_sends_the_correct_cipher_type() {
         for (kind, value) in [

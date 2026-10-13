@@ -35,7 +35,9 @@ It leaves local sources and earlier attachment versions intact. No schedule is i
 on stdin: `name`, numeric `type` (2 note, 3 card, 4 identity), `notes`, the matching
 `card`/`identity` payload, and optional `fields`. Fields use camelCase. Use `--id UUID`
 to replace an existing item's payload/notes; omitted custom fields are preserved. Never put real values in command
-arguments; pipe from the private source. Duplicate names and mixed payloads are refused.
+arguments; pipe from the private source. Type changes require `--convert`: a new
+UUID is created, the original is retained, and entries with attachments are refused.
+Verify the replacement before removing an original, within the authorized migration scope. Duplicate names and mixed payloads are refused.
 
 ```sh
 bwu attachment list ITEM_UUID                       # names masked

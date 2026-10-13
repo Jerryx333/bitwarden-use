@@ -82,56 +82,7 @@ impl State {
         &mut self,
         entries: &[rbw::db::Entry],
     ) {
-        self.master_password_reprompt.clear();
-
-        let mut hasher = sha2::Sha256::new();
-        let mut insert = |s: Option<&str>| {
-            if let Some(s) = s {
-                if !s.is_empty() {
-                    hasher.update(s);
-                    self.master_password_reprompt
-                        .insert(hasher.finalize_reset().into());
-                }
-            }
-        };
-
-        for entry in entries {
-            if !entry.master_password_reprompt() {
-                continue;
-            }
-            for attachment in &entry.attachments {
-                insert(attachment.key.as_deref());
-            }
-
-            match &entry.data {
-                rbw::db::EntryData::Login { password, totp, .. } => {
-                    insert(password.as_deref());
-                    insert(totp.as_deref());
-                }
-                rbw::db::EntryData::Card { number, code, .. } => {
-                    insert(number.as_deref());
-                    insert(code.as_deref());
-                }
-                rbw::db::EntryData::Identity {
-                    ssn,
-                    passport_number,
-                    ..
-                } => {
-                    insert(ssn.as_deref());
-                    insert(passport_number.as_deref());
-                }
-                rbw::db::EntryData::SecureNote => {}
-                rbw::db::EntryData::SshKey { private_key, .. } => {
-                    insert(private_key.as_deref());
-                }
-            }
-
-            for field in &entry.fields {
-                if field.ty == Some(rbw::api::FieldType::Hidden) {
-                    insert(field.value.as_deref());
-                }
-            }
-        }
+        self.master_password_reprompt = reprompt_hashes(entries);
 
         self.master_password_reprompt_initialized = true;
     }
@@ -149,5 +100,82 @@ impl State {
         environment: rbw::protocol::Environment,
     ) {
         self.last_environment = environment;
+    }
+}
+
+fn reprompt_hashes(
+    entries: &[rbw::db::Entry],
+) -> std::collections::HashSet<[u8; 32]> {
+    let mut hashes = std::collections::HashSet::new();
+    let mut hasher = sha2::Sha256::new();
+    let mut insert = |s: Option<&str>| {
+        if let Some(s) = s {
+            if !s.is_empty() {
+                hasher.update(s);
+                hashes.insert(hasher.finalize_reset().into());
+            }
+        }
+    };
+
+    for entry in entries {
+        if !entry.master_password_reprompt() {
+            continue;
+        }
+        insert(entry.notes.as_deref());
+        for attachment in &entry.attachments {
+            insert(attachment.key.as_deref());
+        }
+
+        match &entry.data {
+            rbw::db::EntryData::Login { password, totp, .. } => {
+                insert(password.as_deref());
+                insert(totp.as_deref());
+            }
+            rbw::db::EntryData::Card { number, code, .. } => {
+                insert(number.as_deref());
+                insert(code.as_deref());
+            }
+            rbw::db::EntryData::Identity {
+                ssn,
+                passport_number,
+                ..
+            } => {
+                insert(ssn.as_deref());
+                insert(passport_number.as_deref());
+            }
+            rbw::db::EntryData::SecureNote => {}
+            rbw::db::EntryData::SshKey { private_key, .. } => {
+                insert(private_key.as_deref());
+            }
+        }
+
+        for field in &entry.fields {
+            if field.ty == Some(rbw::api::FieldType::Hidden) {
+                insert(field.value.as_deref());
+            }
+        }
+    }
+
+    hashes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn protected_notes_and_attachment_keys_require_master_password() {
+        let mut entry: rbw::db::Entry = serde_json::from_value(serde_json::json!({
+            "id":"synthetic","name":"encrypted-name","data":"SecureNote","fields":[],"history":[],
+            "notes":"encrypted-note","master_password_reprompt":1,
+            "attachments":[{"Id":"synthetic-attachment","FileName":"encrypted-name","Key":"encrypted-key"}]
+        })).unwrap();
+        let hashes = reprompt_hashes(&[entry.clone()]);
+        for value in ["encrypted-note", "encrypted-key"] {
+            let hash: [u8; 32] =
+                sha2::Sha256::digest(value.as_bytes()).into();
+            assert!(hashes.contains(&hash));
+        }
+        entry.master_password_reprompt = rbw::api::CipherRepromptType::None;
+        assert!(reprompt_hashes(&[entry]).is_empty());
     }
 }

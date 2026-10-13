@@ -35,6 +35,12 @@ bwu attachment download ITEM_UUID ATTACHMENT_ID --output /private/new-file
 bwu attachment download ITEM_UUID ATTACHMENT_ID --output - | consuming-command
 ```
 
+`item put --id UUID --convert --yes` creates a new UUID when changing type.
+It keeps the original, its history and any data there until you explicitly remove
+it. Conversion with attachments/shared items is refused; migrate their files
+explicitly. Ordinary `--id` updates refuse type changes because some servers accept
+the request but retain the old type.
+
 Attachment files are limited to 128 MiB. Downloads refuse overwrites, create files
 with mode 0600, authenticate ciphertext before writing plaintext and use the normal
 reveal authorization/audit. Shared-item writes and legacy keyless attachments are

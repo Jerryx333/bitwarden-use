@@ -631,6 +631,12 @@ enum ItemCommand {
         input: std::path::PathBuf,
         #[arg(long, conflicts_with = "folder")]
         id: Option<uuid::Uuid>,
+        #[arg(
+            long,
+            requires = "id",
+            help = "Create a new UUID when changing type; retain the original"
+        )]
+        convert: bool,
         #[arg(long)]
         folder: Option<String>,
         #[command(flatten)]
@@ -838,9 +844,16 @@ fn main() {
             ItemCommand::Put {
                 input,
                 id,
+                convert,
                 folder,
                 write,
-            } => commands::item_put(&input, id, folder.as_deref(), &write),
+            } => commands::item_put(
+                &input,
+                id,
+                convert,
+                folder.as_deref(),
+                &write,
+            ),
         },
         Opt::Attachment { command } => match command {
             AttachmentCommand::List { item, reveal } => {

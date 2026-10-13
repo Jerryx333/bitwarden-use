@@ -124,6 +124,7 @@ impl Item {
 pub fn item_put(
     input: &std::path::Path,
     id: Option<uuid::Uuid>,
+    convert: bool,
     folder: Option<&str>,
     options: &WriteOptions,
 ) -> anyhow::Result<()> {
@@ -148,6 +149,11 @@ pub fn item_put(
     crate::actions::sync()?;
     let mut db = load_db()?;
     let mut original = None;
+    let mut replacement = false;
+    anyhow::ensure!(
+        !convert || id.is_some(),
+        "--convert requires an existing item UUID"
+    );
     let entry = if let Some(id) = id {
         let entry = db
             .entries
@@ -192,6 +198,36 @@ pub fn item_put(
             value["key"].as_str() == entry.key.as_deref(),
             "item key changed; sync and review again"
         );
+        anyhow::ensure!(
+            value["organizationId"].is_null(),
+            "shared item writes are not supported"
+        );
+        let kind = value
+            .get("type")
+            .or_else(|| value.get("Type"))
+            .and_then(Value::as_u64)
+            .context("server omitted cipher type")?;
+        replacement = kind != u64::from(item.kind);
+        anyhow::ensure!(!replacement || convert, "in-place type changes are not supported; use --convert to create a replacement while retaining the original");
+        if replacement {
+            anyhow::ensure!(entry.attachments.is_empty() && value["attachments"].as_array().is_none_or(Vec::is_empty), "type conversion with attachments is not supported; retain the original and migrate attachments explicitly");
+            anyhow::ensure!(
+                value["encryptedByKeyId"].is_null(),
+                "blob-encrypted item conversion is not supported"
+            );
+            for other in &db.entries {
+                if other.id != entry.id
+                    && other.folder_id == entry.folder_id
+                    && crate::actions::decrypt(
+                        &other.name,
+                        other.key.as_deref(),
+                        other.org_id.as_deref(),
+                    )? == item.name
+                {
+                    anyhow::bail!("replacement name already exists; inspect it before retrying");
+                }
+            }
+        }
         original = Some(value);
         Some(entry)
     } else {
@@ -217,6 +253,9 @@ pub fn item_put(
         item.name.escape_debug(),
         item.kind
     );
+    if replacement {
+        eprintln!("Create a new item UUID; the original is retained until explicitly removed.");
+    }
     if !options.approve()? {
         return Ok(());
     }
@@ -227,6 +266,30 @@ pub fn item_put(
         db.refresh_token.clone().context("missing refresh token")?;
     let result_id;
     if let Some(original) = original {
+        if replacement {
+            for field in ["folderId", "key", "favorite", "reprompt"] {
+                encrypted[field] = original[field].clone();
+            }
+            if item.fields.is_none() {
+                encrypted["fields"] = original["fields"].clone();
+            }
+            let (token, response) = rbw::actions::cipher_request(
+                &access,
+                &refresh,
+                &reqwest::Method::POST,
+                "/ciphers",
+                Some(&encrypted),
+            )?;
+            if let Some(token) = token {
+                db.access_token = Some(token);
+                save_db(&db)?;
+            }
+            let new_id = response["id"].as_str().or_else(|| response["Id"].as_str()).context("replacement created but id missing; inspect before retrying")?.to_owned();
+            anyhow::ensure!(response.get("type").or_else(|| response.get("Type")).and_then(Value::as_u64) == Some(u64::from(item.kind)), "replacement created but server type did not match; inspect before retrying");
+            crate::actions::sync().context("replacement created but sync failed; inspect before retrying")?;
+            println!("{new_id}");
+            return Ok(());
+        }
         let mut patch = rbw::mutation::Patch::default();
         for key in [
             "type",

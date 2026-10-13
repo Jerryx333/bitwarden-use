@@ -1,9 +1,11 @@
 # 0.12.0 (unreleased)
 
+- Reject silent in-place type changes; `item put --id --convert` creates a replacement with a new UUID and retains the original. Respect explicit server cipher types even if inactive payloads remain.
+
 - Save the encrypted vault cache atomically with mode 0600 so background sync cannot expose a truncated JSON file to concurrent readers.
 
 - Add native secure-note, card and identity JSON writes with `item put`, masked previews, explicit UUID updates and optimistic concurrency checks. Fix the creation API sending login type for every item.
-- Add end-to-end encrypted attachment upload/download, masked listings, authenticated binary format validation, private output permissions and audited reveals. Attachment keys on reprompt-protected items retain the master-password check.
+- Add end-to-end encrypted attachment upload/download, masked listings, authenticated binary format validation, private output permissions and audited reveals. Notes and attachment keys on reprompt-protected items retain the master-password check.
 - Add `profile sync`: preserve complete profile JSON, map identity/cards to native items, upload original documents, verify downloaded hashes, reject unrelated same-name items, and avoid duplicate writes/uploads on later syncs. Requires Python 3.9+; does not install a background schedule.
 
 # 0.11.0
