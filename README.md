@@ -229,6 +229,36 @@ each device with the server. This prompts for your personal API key, which you
 can find using the instructions
 [here](https://bitwarden.com/help/article/personal-api-key/).
 
+### Organizing entries into folders
+
+```sh
+bwu folder list --json                  # includes empty folders
+bwu folder create 'Work' --dry-run
+bwu folder create 'Work' --yes
+bwu ls --fields id,name,folder
+bwu move UUID1 UUID2 --to 'Work' --dry-run
+bwu move UUID1 UUID2 --to 'Work' --yes
+bwu move UUID1 --clear --dry-run         # return to no folder
+```
+
+Moves accept entry UUIDs only, so duplicate names cannot select the wrong
+account. `--to` takes an exact folder name or its UUID; duplicate folder names
+require a UUID. Create the destination first. Creating an already existing
+unique name and moving entries already in the destination are no-ops.
+
+The preview shows entry UUIDs, names and old/new folders. Folder operations
+never decrypt passwords, TOTP seeds, notes, custom fields or passkey keys.
+Moves preserve complete server ciphers and their attachments, guard against
+concurrent folder changes, and send the server revision to reject stale writes.
+Moving into a configured `reveal_folders` folder changes the entry's reveal
+policy; the preview calls this out.
+
+Writes require confirmation or `--yes`; `--dry-run` makes no vault changes.
+Batch moves run sequentially and stop on the first failure. The error reports
+the completed count and sync outcome; a failed request may have been accepted,
+so check the synced state before retrying. Organization collections and sharing
+permissions are separate from personal folders and are not changed.
+
 ### Importing from another password manager
 
 `bitwarden-use import <file.csv>` adds the logins from a CSV exported by Apple

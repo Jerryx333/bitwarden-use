@@ -43,6 +43,29 @@ bwu ls
 bwu sync
 ```
 
+## Organizing folders
+
+```sh
+bwu folder list --json                 # IDs and names, including empty folders
+bwu folder create 'Work' --dry-run
+bwu folder create 'Work' --yes
+bwu ls --fields id,name,folder
+bwu move UUID1 UUID2 --to 'Work' --dry-run
+bwu move UUID1 UUID2 --to 'Work' --yes
+bwu move UUID1 --clear --dry-run
+```
+
+Move requires exact entry UUIDs. The destination is an existing exact folder
+name or UUID; duplicate names require a UUID. Creating an existing unique name
+or moving to the current folder makes no change. Preview first. Moves touch only
+folder membership and preserve secrets, passkeys, attachments and sharing settings;
+no secret fields are decrypted. Moving into `reveal_folders` affects reveal policy
+and is called out in the preview. Batch moves are sequential, stop on the first
+failure, and report the completed count and sync result. A failed request may
+already be accepted: inspect synced state before retrying. Do not export the
+vault's plaintext to classify it. Keep classification proposals outside public
+repositories, and leave uncertain assignments for review.
+
 `set` changes only named fields. `--uri` replaces the list; additions/removals retain other URIs.
 Modes: base, host, exact, regex, starts-with, never. Empty values or removal of the last URI require
 `--allow-empty`. Writes preview masked field changes on stderr; noninteractive calls require

@@ -1,3 +1,8 @@
+# 0.11.0
+
+- Add `folder list` (including empty folders, optional JSON) and `folder create`, with idempotent creation, dry-run and confirmation.
+- Add `move UUID... --to NAME_OR_UUID` / `--clear` to organize existing entries in batches without decrypting secrets. Previews show folder changes, warn about reveal-policy destinations, reject ambiguous folders and stale membership, and preserve passwords, passkeys and attachments. Batch failures report partial progress and sync status.
+
 # 0.10.0
 
 - `import <file.csv>`: add the logins from an Apple Passwords / Safari, Google Password Manager / Chrome or 1Password CSV export, recognized from the header row. Name, username, password, website, notes and the `otpauth://` setup are kept; logins already in the vault with the same name and username are skipped, so running it again only adds what is missing. Lists the names it will add (never passwords) and asks first; `--dry-run`, `--yes` and `--folder` work as for `add`.

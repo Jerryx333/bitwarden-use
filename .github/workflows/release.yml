@@ -97,6 +97,9 @@ jobs:
           "$name/bitwarden-use" --version
           "$name/bitwarden-use" set --help
           "$name/bitwarden-use" login --help
+          "$name/bitwarden-use" folder list --help
+          "$name/bitwarden-use" folder create --help
+          "$name/bitwarden-use" move --help
           tar czf "$name.tar.gz" "$name"
           if command -v sha256sum >/dev/null; then
             sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"

@@ -1877,10 +1877,19 @@ mod patch_tests {
 
     #[test]
     fn patch_transport_preserves_cipher_and_sends_revision() {
+        check_patch_transport(false);
+    }
+
+    #[test]
+    fn folder_move_transport_preserves_secrets_and_attachments() {
+        check_patch_transport(true);
+    }
+
+    fn check_patch_transport(move_folder: bool) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
-            let original = serde_json::json!({"id":"fixture", "revisionDate":"2026-09-06T00:00:00Z", "favorite":true,
+            let original = serde_json::json!({"id":"fixture", "folderId":"old-folder", "revisionDate":"2026-09-06T00:00:00Z", "favorite":true,
                 "reprompt":1, "key":null, "login":{"password":"encrypted-old", "fido2Credentials":[{"keyValue":"encrypted-passkey"}]},
                 "attachments":[{"id":"attachment","fileName":"encrypted-name","key":"encrypted-key"}]});
             for method in ["GET", "PUT"] {
@@ -1916,7 +1925,22 @@ mod patch_tests {
                 if method == "PUT" {
                     let value: serde_json::Value =
                         serde_json::from_slice(&body).unwrap();
-                    assert_eq!(value["login"]["password"], "encrypted-new");
+                    assert_eq!(
+                        value["login"]["password"],
+                        if move_folder {
+                            "encrypted-old"
+                        } else {
+                            "encrypted-new"
+                        }
+                    );
+                    assert_eq!(
+                        value["folderId"],
+                        if move_folder {
+                            "new-folder"
+                        } else {
+                            "old-folder"
+                        }
+                    );
                     assert_eq!(
                         value["login"]["fido2Credentials"],
                         original["login"]["fido2Credentials"]
@@ -1942,11 +1966,19 @@ mod patch_tests {
         });
         let client = Client::new(&format!("http://{address}"), "", "", None);
         let mut patch = crate::mutation::Patch::default();
-        patch.change(
-            "/login/password",
-            serde_json::json!("encrypted-old"),
-            serde_json::json!("encrypted-new"),
-        );
+        if move_folder {
+            patch.change(
+                "/folderId",
+                serde_json::json!("old-folder"),
+                serde_json::json!("new-folder"),
+            );
+        } else {
+            patch.change(
+                "/login/password",
+                serde_json::json!("encrypted-old"),
+                serde_json::json!("encrypted-new"),
+            );
+        }
         client
             .patch_cipher("fixture-token", "fixture", &patch)
             .unwrap();

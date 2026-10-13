@@ -313,6 +313,29 @@ enum Opt {
         write: commands::WriteOptions,
     },
 
+    #[command(about = "List or create vault folders")]
+    Folder {
+        #[command(subcommand)]
+        folder: Folder,
+    },
+
+    #[command(about = "Move entries by UUID without changing their secrets")]
+    Move {
+        #[arg(required = true, num_args = 1..)]
+        ids: Vec<uuid::Uuid>,
+        #[arg(
+            long,
+            required_unless_present = "clear",
+            conflicts_with = "clear"
+        )]
+        to: Option<String>,
+        /// Remove the entries from their current folder.
+        #[arg(long)]
+        clear: bool,
+        #[command(flatten)]
+        write: commands::WriteOptions,
+    },
+
     #[command(about = "Remove a given entry", visible_alias = "rm")]
     Remove {
         #[command(flatten)]
@@ -414,6 +437,8 @@ impl Opt {
             Self::Generate { .. } => "generate".to_string(),
             Self::Edit { .. } => "edit".to_string(),
             Self::Set { .. } => "set".to_string(),
+            Self::Folder { .. } => "folder".to_string(),
+            Self::Move { .. } => "move".to_string(),
             Self::Remove { .. } => "remove".to_string(),
             Self::History { .. } => "history".to_string(),
             Self::Lock => "lock".to_string(),
@@ -437,6 +462,21 @@ enum CompletionShell {
     Elvish,
     Nushell,
     Fig,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Folder {
+    /// List folders, including empty ones.
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a folder; an existing unique name is a no-op.
+    Create {
+        name: String,
+        #[command(flatten)]
+        write: commands::WriteOptions,
+    },
 }
 
 #[derive(Debug, clap::Parser)]
@@ -728,6 +768,18 @@ fn main() {
             fields,
             &write,
         ),
+        Opt::Folder { folder } => match folder {
+            Folder::List { json } => commands::folder_list(json),
+            Folder::Create { name, write } => {
+                commands::folder_create(&name, &write)
+            }
+        },
+        Opt::Move {
+            ids,
+            to,
+            clear: _,
+            write,
+        } => commands::move_entries(&ids, to.as_deref(), &write),
         Opt::Remove { find_args, write } => commands::remove(
             find_args.needle,
             find_args.user.as_deref(),
@@ -890,6 +942,24 @@ mod cli_tests {
             vec!["bwu", "upgrade"],
             vec!["bwu", "upgrade", "--check"],
             vec!["bwu", "upgrade", "--json"],
+            vec!["bwu", "folder", "list", "--json"],
+            vec!["bwu", "folder", "create", "work", "--dry-run"],
+            vec![
+                "bwu",
+                "move",
+                "11111111-1111-1111-1111-111111111111",
+                "22222222-2222-2222-2222-222222222222",
+                "--to",
+                "work",
+                "--dry-run",
+            ],
+            vec![
+                "bwu",
+                "move",
+                "11111111-1111-1111-1111-111111111111",
+                "--clear",
+                "--yes",
+            ],
         ] {
             assert!(Opt::try_parse_from(args).is_ok());
         }
@@ -907,6 +977,24 @@ mod cli_tests {
             vec!["bwu", "login", "--reveal"],
             vec!["bwu", "get", "item", "--json", "--field", "notes"],
             vec!["bwu", "unlock", "--keychain", "--keychain-store"],
+            vec!["bwu", "move", "item-name", "--to", "work"],
+            vec!["bwu", "move", "11111111-1111-1111-1111-111111111111"],
+            vec![
+                "bwu",
+                "move",
+                "11111111-1111-1111-1111-111111111111",
+                "--to",
+                "work",
+                "--clear",
+            ],
+            vec![
+                "bwu",
+                "move",
+                "11111111-1111-1111-1111-111111111111",
+                "--clear",
+                "--dry-run",
+                "--yes",
+            ],
         ] {
             assert!(Opt::try_parse_from(args).is_err());
         }

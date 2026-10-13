@@ -1,7 +1,9 @@
 mod read;
 pub use read::domain_login;
+mod folders;
 mod import;
 mod write;
+pub use folders::{folder_create, folder_list, move_entries};
 pub use import::import;
 use std::io::Write as _;
 pub use write::{edit, set, SetFields, WriteOptions};
