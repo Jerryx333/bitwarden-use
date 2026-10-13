@@ -1,4 +1,4 @@
-# 0.12.0 (unreleased)
+# 0.12.0
 
 - Move personal profile sync policy into profile-use. Keep `bwu profile sync` as a compatibility alias to the installed skill; vault primitives and authorization remain here.
 
