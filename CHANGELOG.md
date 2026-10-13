@@ -1,3 +1,7 @@
+# 0.12.1
+
+- Find profile-use 0.4+ in registered plugin installations as well as standalone skill directories. Skip older copies without the sync helper and report the required version explicitly.
+
 # 0.12.0
 
 - Move personal profile sync policy into profile-use. Keep `bwu profile sync` as a compatibility alias to the installed skill; vault primitives and authorization remain here.
