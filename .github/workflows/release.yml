@@ -51,6 +51,10 @@ jobs:
           cargo test --locked --no-default-features --bin bitwarden-use cli_tests
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} --bins
+      - name: Verify plugin-only profile delegation
+        env:
+          PROFILE_DELEGATE_BINARY: target/${{ matrix.target }}/release/bitwarden-use
+        run: python3 tools/test_profile_delegate.py
       # Developer ID signing gives every release the same Team ID. The Keychain
       # keys its partition list on the Team ID (unsigned / ad-hoc / self-signed
       # binaries get a per-build cdhash instead), so "Always Allow" for the
