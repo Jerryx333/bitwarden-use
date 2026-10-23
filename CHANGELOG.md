@@ -1,3 +1,10 @@
+# 0.12.3
+
+- Fix full cipher creation and updates on Vaultwarden 1.37.4 by including the current access token's user subject as `encryptedFor`. Preserve item metadata and attachment request bodies; reject unusable token subjects without exposing token contents.
+- Update Argon2 and Tokio Stream, and add independent Argon2id reference vectors for encryption keys, MAC keys and login hashes. Fix a Linux race in the upgrade test harness.
+- 修复 Vaultwarden 1.37.4 创建、更新条目时缺少 `encryptedFor` 导致的 HTTP 422；保留条目元数据和附件请求格式，令牌异常时不泄露其内容。
+- 更新 Argon2、Tokio Stream，补充密钥兼容向量测试，并修复 Linux 升级测试的并发竞态。
+
 # 0.12.2
 
 - Reject multiline piped input and private-key blocks in `add` before unlocking or making a vault request. Accept a single terminal LF or CRLF for ordinary passwords, keep interactive password-plus-notes editing unchanged, and point callers to native SSH-key or secure-note JSON items.
